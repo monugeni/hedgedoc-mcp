@@ -13,6 +13,8 @@ services:
       CMD_ALLOW_ANONYMOUS_EDITS: "true"
       CMD_ALLOW_FREEURL: "true"
       CMD_DEFAULT_PERMISSION: freely
+      CMD_EMAIL: "true"
+      CMD_ALLOW_EMAIL_REGISTER: "true"
       CMD_IMAGE_UPLOAD_TYPE: filesystem
       CMD_SESSION_SECRET: change-me-to-a-random-secret
       HEDGEDOC_PUBLIC_URL: http://server.esteem.lan:8210
