@@ -28,6 +28,11 @@ for (let attempt = 1; ; attempt++) {
   }
 }
 
+// Create bot user for authorship tracking
+const botName = process.env.AUTHOR_NAME || "Claude";
+const botUserId = await client.ensureBotUser(botName);
+console.error(`Registered bot user "${botName}" (${botUserId})`);
+
 const transportArg = process.argv.includes("--stdio")
   ? "stdio"
   : process.argv.includes("--http")
