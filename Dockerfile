@@ -18,6 +18,9 @@ RUN npm install --omit=dev
 COPY --from=builder /opt/mcp/dist dist/
 
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 WORKDIR /hedgedoc
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+ENTRYPOINT []
+CMD ["/usr/local/bin/entrypoint.sh"]
