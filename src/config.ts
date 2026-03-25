@@ -1,5 +1,7 @@
 export interface Config {
-  hedgedocUrl: string;
+  /** Internal HedgeDoc URL — only used for the startup health check. Optional. */
+  hedgedocUrl?: string;
+  /** Public-facing HedgeDoc URL used in note links returned to the user. */
   hedgedocPublicUrl: string;
   databaseUrl: string;
   port: number;
@@ -12,11 +14,15 @@ export function loadConfig(): Config {
   const hedgedocUrl = process.env.HEDGEDOC_URL;
   const databaseUrl = process.env.DATABASE_URL;
 
-  if (!hedgedocUrl) {
-    throw new Error("HEDGEDOC_URL environment variable is required");
-  }
   if (!databaseUrl) {
     throw new Error("DATABASE_URL environment variable is required");
+  }
+
+  const hedgedocPublicUrl = process.env.HEDGEDOC_PUBLIC_URL || hedgedocUrl;
+  if (!hedgedocPublicUrl) {
+    throw new Error(
+      "HEDGEDOC_PUBLIC_URL (or HEDGEDOC_URL) environment variable is required for generating note links"
+    );
   }
 
   const transport = process.env.TRANSPORT ?? "http";
@@ -24,11 +30,9 @@ export function loadConfig(): Config {
     throw new Error('TRANSPORT must be "http" or "stdio"');
   }
 
-  const hedgedocPublicUrl = (process.env.HEDGEDOC_PUBLIC_URL || hedgedocUrl).replace(/\/+$/, "");
-
   return {
-    hedgedocUrl: hedgedocUrl.replace(/\/+$/, ""),
-    hedgedocPublicUrl,
+    hedgedocUrl: hedgedocUrl?.replace(/\/+$/, ""),
+    hedgedocPublicUrl: hedgedocPublicUrl.replace(/\/+$/, ""),
     databaseUrl,
     port: parseInt(process.env.PORT || "8211", 10),
     host: process.env.HOST || "0.0.0.0",

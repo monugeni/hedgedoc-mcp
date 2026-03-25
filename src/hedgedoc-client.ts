@@ -1,4 +1,5 @@
 import pg from "pg";
+import { randomBytes } from "node:crypto";
 
 export interface NoteInfo {
   id: string;
@@ -14,19 +15,32 @@ export interface NoteInfo {
 type AuthorshipEntry = [string, number, number, number, number];
 
 export class HedgeDocClient {
-  private baseUrl: string;
+  private baseUrl: string | undefined;
   private pool: pg.Pool;
   private botUserId: string | null = null;
 
-  constructor(baseUrl: string, databaseUrl: string) {
-    this.baseUrl = baseUrl.replace(/\/+$/, "");
+  constructor(databaseUrl: string, baseUrl?: string) {
+    this.baseUrl = baseUrl?.replace(/\/+$/, "");
     this.pool = new pg.Pool({ connectionString: databaseUrl });
   }
 
-  /** Check that HedgeDoc is responding. */
+  private generateShortId(): string {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    const bytes = randomBytes(10);
+    return Array.from(bytes).map(b => chars[b % chars.length]).join("");
+  }
+
+  /**
+   * Verify connectivity. Uses HedgeDoc HTTP status if a base URL was
+   * provided, otherwise falls back to a simple Postgres ping.
+   */
   async healthCheck(): Promise<void> {
-    const res = await fetch(`${this.baseUrl}/status`);
-    if (!res.ok) throw new Error(`HedgeDoc status ${res.status}`);
+    if (this.baseUrl) {
+      const res = await fetch(`${this.baseUrl}/status`);
+      if (!res.ok) throw new Error(`HedgeDoc status ${res.status}`);
+    } else {
+      await this.pool.query("SELECT 1");
+    }
   }
 
   /**
@@ -64,61 +78,84 @@ export class HedgeDocClient {
   }
 
   /**
-   * Create a new note. Returns the note shortid or alias.
+   * Create a new note via direct Postgres INSERT. Returns the shortid or alias.
    */
   async createNote(content: string, alias?: string): Promise<string> {
-    const url = alias
-      ? `${this.baseUrl}/new/${encodeURIComponent(alias)}`
-      : `${this.baseUrl}/new`;
+    const botId = this.botUserId;
+    if (!botId) throw new Error("Bot user not initialized. Call ensureBotUser() first.");
 
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "text/markdown" },
-      body: content,
-      redirect: "manual",
-    });
+    const shortid = this.generateShortId();
+    const titleMatch = content.match(/^#\s+(.+)$/m);
+    const title = titleMatch ? titleMatch[1].trim() : content.split("\n")[0].slice(0, 100);
+    const now = Date.now();
+    const authorship: AuthorshipEntry[] = content.length > 0
+      ? [[botId, 0, content.length, now, now]]
+      : [];
 
-    const location = res.headers.get("location");
-    if (location) {
-      const id = location.replace(/^\/+/, "").split("/")[0];
-      return id || (alias ?? "unknown");
-    }
+    await this.pool.query(
+      `INSERT INTO "Notes"
+         (id, shortid, alias, content, title, authorship, permission,
+          "ownerId", "lastchangeuserId", "lastchangeAt", "createdAt", "updatedAt")
+       VALUES
+         (gen_random_uuid(), $1, $2, $3, $4, $5, $6,
+          $7, $7, NOW(), NOW(), NOW())`,
+      [
+        shortid,
+        alias || null,
+        content,
+        title,
+        JSON.stringify(authorship),
+        "freely",
+        botId,
+      ]
+    );
 
-    if (res.ok) {
-      const body = await res.text();
-      const match = body.match(/\/([A-Za-z0-9_-]+)$/);
-      return match ? match[1] : (alias ?? "unknown");
-    }
-
-    throw new Error(`Failed to create note: HTTP ${res.status}`);
+    return alias || shortid;
   }
 
   /** Get the raw Markdown content of a note. */
   async getContent(noteId: string): Promise<string> {
-    const res = await fetch(`${this.baseUrl}/${encodeURIComponent(noteId)}/download`);
-    if (!res.ok) {
-      throw new Error(`Failed to get note "${noteId}": HTTP ${res.status}`);
+    const result = await this.pool.query(
+      `SELECT content FROM "Notes" WHERE shortid = $1 OR alias = $1`,
+      [noteId]
+    );
+    if (result.rows.length === 0) {
+      throw new Error(`Note "${noteId}" not found`);
     }
-    return res.text();
+    return result.rows[0].content || "";
   }
 
-  /** Get note metadata via HedgeDoc REST API. */
+  /** Get note metadata from the database. */
   async getNoteInfo(noteId: string): Promise<any> {
-    const res = await fetch(`${this.baseUrl}/${encodeURIComponent(noteId)}/info`);
-    if (!res.ok) {
-      throw new Error(`Failed to get note info "${noteId}": HTTP ${res.status}`);
+    const result = await this.pool.query(
+      `SELECT n.shortid AS id, n.alias, n.title, n.content,
+              n."viewcount", n."createdAt", n."updatedAt", n."lastchangeAt",
+              n.permission,
+              u.profile->>'name' AS "lastchangeUser"
+       FROM "Notes" n
+       LEFT JOIN "Users" u ON n."lastchangeuserId" = u.id
+       WHERE n.shortid = $1 OR n.alias = $1`,
+      [noteId]
+    );
+    if (result.rows.length === 0) {
+      throw new Error(`Note "${noteId}" not found`);
     }
-    return res.json();
+    return result.rows[0];
   }
 
   /** Get revision list for a note. */
   async getRevisions(noteId: string): Promise<any[]> {
-    const res = await fetch(`${this.baseUrl}/${encodeURIComponent(noteId)}/revision`);
-    if (!res.ok) {
-      throw new Error(`Failed to get revisions for "${noteId}": HTTP ${res.status}`);
-    }
-    const data = await res.json();
-    return data.revision ?? data;
+    const result = await this.pool.query(
+      `SELECT r.id, r.patch, r.content, r.authorship,
+              r."createdAt", r."updatedAt",
+              length(r.content) AS length
+       FROM "Revisions" r
+       JOIN "Notes" n ON r."noteId" = n.id
+       WHERE n.shortid = $1 OR n.alias = $1
+       ORDER BY r."createdAt" DESC`,
+      [noteId]
+    );
+    return result.rows;
   }
 
   /**

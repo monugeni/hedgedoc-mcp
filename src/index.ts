@@ -10,20 +10,24 @@ import { loadConfig } from "./config.js";
 import { EXPORT_DIR } from "./tools/export-tools.js";
 
 const config = loadConfig();
-const client = new HedgeDocClient(config.hedgedocUrl, config.databaseUrl);
+const client = new HedgeDocClient(config.databaseUrl, config.hedgedocUrl);
 
-// Wait for HedgeDoc to be ready
+// Wait for the database (and optionally HedgeDoc HTTP) to be ready
 for (let attempt = 1; ; attempt++) {
   try {
     await client.healthCheck();
-    console.error("Connected to HedgeDoc at", config.hedgedocUrl);
+    if (config.hedgedocUrl) {
+      console.error("Connected to HedgeDoc at", config.hedgedocUrl);
+    } else {
+      console.error("Connected to database (running without HedgeDoc HTTP API)");
+    }
     break;
   } catch (err) {
     if (attempt >= 30) {
-      console.error("Failed to connect to HedgeDoc after 30 attempts:", err);
+      console.error("Failed to connect after 30 attempts:", err);
       process.exit(1);
     }
-    console.error(`Waiting for HedgeDoc (attempt ${attempt}/30)...`);
+    console.error(`Waiting for database/HedgeDoc (attempt ${attempt}/30)...`);
     await new Promise((r) => setTimeout(r, 2000));
   }
 }
@@ -126,9 +130,9 @@ if (transportArg === "stdio") {
   app.get("/health", async (_req, res) => {
     try {
       await client.healthCheck();
-      res.json({ status: "ok", hedgedoc: config.hedgedocUrl });
+      res.json({ status: "ok", hedgedoc: config.hedgedocUrl ?? "db-only" });
     } catch {
-      res.status(503).json({ status: "error", message: "Cannot reach HedgeDoc" });
+      res.status(503).json({ status: "error", message: "Health check failed" });
     }
   });
 
