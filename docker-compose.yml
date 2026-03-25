@@ -1,0 +1,47 @@
+services:
+  hedgedoc:
+    build: .
+    restart: always
+    environment:
+      CMD_DB_URL: postgres://hedgedoc:hedgedoc@db:5432/hedgedoc
+      CMD_DOMAIN: server.esteem.lan
+      CMD_PORT: 3000
+      CMD_PROTOCOL_USESSL: "false"
+      CMD_URL_ADDPORT: "true"
+      CMD_URL_PATH: ""
+      CMD_ALLOW_ANONYMOUS: "true"
+      CMD_ALLOW_ANONYMOUS_EDITS: "true"
+      CMD_ALLOW_FREEURL: "true"
+      CMD_DEFAULT_PERMISSION: freely
+      CMD_IMAGE_UPLOAD_TYPE: filesystem
+      CMD_SESSION_SECRET: change-me-to-a-random-secret
+      HEDGEDOC_PUBLIC_URL: http://server.esteem.lan:8210
+      DATABASE_URL: postgres://hedgedoc:hedgedoc@db:5432/hedgedoc
+      MCP_API_KEY: change-me-to-a-random-key
+    ports:
+      - "8210:3000"
+      - "8211:8211"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - hedgedoc-uploads:/hedgedoc/public/uploads
+
+  db:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: hedgedoc
+      POSTGRES_PASSWORD: hedgedoc
+      POSTGRES_DB: hedgedoc
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hedgedoc"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - hedgedoc-db:/var/lib/postgresql/data
+
+volumes:
+  hedgedoc-uploads:
+  hedgedoc-db:
