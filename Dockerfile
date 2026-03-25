@@ -22,5 +22,6 @@ COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 WORKDIR /hedgedoc
+RUN echo '{"production":{}}' > config.json
 ENTRYPOINT []
 CMD ["/usr/local/bin/entrypoint.sh"]
