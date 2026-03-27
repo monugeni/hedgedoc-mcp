@@ -37,6 +37,22 @@ export function registerNoteTools(server: McpServer, client: HedgeDocClient, pub
   );
 
   server.tool(
+    "rename_note",
+    "Rename a note by setting or changing its URL alias.",
+    {
+      noteId: z.string().describe("Current note ID or alias"),
+      newAlias: z.string().describe("New URL alias (e.g. 'weekly-standup-notes')"),
+    },
+    { readOnlyHint: false, destructiveHint: false },
+    async ({ noteId, newAlias }) => {
+      await client.renameNote(noteId, newAlias);
+      return {
+        content: [{ type: "text", text: `Note renamed to "${newAlias}": ${noteUrl(newAlias)}` }],
+      };
+    }
+  );
+
+  server.tool(
     "list_notes",
     "List all HedgeDoc notes with their IDs, aliases, titles, and last-modified dates.",
     {},

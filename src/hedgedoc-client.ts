@@ -31,6 +31,36 @@ export class HedgeDocClient {
   }
 
   /**
+   * Helper to resolve any note identifier (Base64URL UUID, standard UUID, shortid, or alias)
+   * to its internal database UUID.
+   */
+  private async resolveNoteId(noteId: string): Promise<string> {
+    let clause = `shortid = $1 OR alias = $1`;
+    let values: any[] = [noteId];
+
+    // Check if it's a 22-char base64url encoded UUID (used in editing URLs)
+    if (noteId.length === 22) {
+      const hex = Buffer.from(noteId, "base64url").toString("hex");
+      if (hex.length === 32) {
+        const uuid = [hex.slice(0,8), hex.slice(8,12), hex.slice(12,16), hex.slice(16,20), hex.slice(20)].join("-");
+        clause += ` OR id = $2::uuid`;
+        values.push(uuid);
+      }
+    } 
+    // Check if it's already a standard UUID format
+    else if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(noteId)) {
+      clause += ` OR id = $2::uuid`;
+      values.push(noteId);
+    }
+
+    const res = await this.pool.query(`SELECT id FROM "Notes" WHERE ${clause}`, values);
+    if (res.rows.length === 0) {
+      throw new Error(`Note "${noteId}" not found`);
+    }
+    return res.rows[0].id;
+  }
+
+  /**
    * Verify connectivity. Uses HedgeDoc HTTP status if a base URL was
    * provided, otherwise falls back to a simple Postgres ping.
    */
@@ -115,18 +145,17 @@ export class HedgeDocClient {
 
   /** Get the raw Markdown content of a note. */
   async getContent(noteId: string): Promise<string> {
+    const uuid = await this.resolveNoteId(noteId);
     const result = await this.pool.query(
-      `SELECT content FROM "Notes" WHERE shortid = $1 OR alias = $1`,
-      [noteId]
+      `SELECT content FROM "Notes" WHERE id = $1`,
+      [uuid]
     );
-    if (result.rows.length === 0) {
-      throw new Error(`Note "${noteId}" not found`);
-    }
     return result.rows[0].content || "";
   }
 
   /** Get note metadata from the database. */
   async getNoteInfo(noteId: string): Promise<any> {
+    const uuid = await this.resolveNoteId(noteId);
     const result = await this.pool.query(
       `SELECT n.shortid AS id, n.alias, n.title, n.content,
               n."viewcount", n."createdAt", n."updatedAt", n."lastchangeAt",
@@ -134,26 +163,24 @@ export class HedgeDocClient {
               u.profile->>'name' AS "lastchangeUser"
        FROM "Notes" n
        LEFT JOIN "Users" u ON n."lastchangeuserId" = u.id
-       WHERE n.shortid = $1 OR n.alias = $1`,
-      [noteId]
+       WHERE n.id = $1`,
+      [uuid]
     );
-    if (result.rows.length === 0) {
-      throw new Error(`Note "${noteId}" not found`);
-    }
     return result.rows[0];
   }
 
   /** Get revision list for a note. */
   async getRevisions(noteId: string): Promise<any[]> {
+    const uuid = await this.resolveNoteId(noteId);
     const result = await this.pool.query(
       `SELECT r.id, r.patch, r.content, r.authorship,
               r."createdAt", r."updatedAt",
               length(r.content) AS length
        FROM "Revisions" r
        JOIN "Notes" n ON r."noteId" = n.id
-       WHERE n.shortid = $1 OR n.alias = $1
+       WHERE n.id = $1
        ORDER BY r."createdAt" DESC`,
-      [noteId]
+      [uuid]
     );
     return result.rows;
   }
@@ -174,13 +201,11 @@ export class HedgeDocClient {
     if (!botId) throw new Error("Bot user not initialized. Call ensureBotUser() first.");
 
     // Read current state
+    const uuid = await this.resolveNoteId(noteId);
     const current = await this.pool.query(
-      `SELECT id, content, authorship FROM "Notes" WHERE shortid = $1 OR alias = $1`,
-      [noteId]
+      `SELECT id, content, authorship FROM "Notes" WHERE id = $1`,
+      [uuid]
     );
-    if (current.rows.length === 0) {
-      throw new Error(`Note "${noteId}" not found`);
-    }
 
     const row = current.rows[0];
     const oldContent: string = row.content || "";
@@ -197,12 +222,17 @@ export class HedgeDocClient {
     const title = titleMatch ? titleMatch[1].trim() : newContent.split("\n")[0].slice(0, 100);
 
     // Ensure Author row exists (for color assignment in editor)
-    await this.pool.query(
-      `INSERT INTO "Authors" ("noteId", "userId", color, "createdAt", "updatedAt")
-       VALUES ($1, $2, $3, NOW(), NOW())
-       ON CONFLICT ("noteId", "userId") DO NOTHING`,
-      [row.id, botId, "#4dabf7"]
+    const authorExists = await this.pool.query(
+      `SELECT 1 FROM "Authors" WHERE "noteId" = $1 AND "userId" = $2`,
+      [row.id, botId]
     );
+    if (authorExists.rows.length === 0) {
+      await this.pool.query(
+        `INSERT INTO "Authors" ("noteId", "userId", color, "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, NOW(), NOW())`,
+        [row.id, botId, "#4dabf7"]
+      );
+    }
 
     // Update the note
     await this.pool.query(
@@ -299,15 +329,23 @@ export class HedgeDocClient {
     return result;
   }
 
+  /** Rename a note by changing its alias. */
+  async renameNote(noteId: string, newAlias: string): Promise<void> {
+    const uuid = await this.resolveNoteId(noteId);
+    await this.pool.query(
+      `UPDATE "Notes" SET alias = $1, "updatedAt" = NOW()
+       WHERE id = $2`,
+      [newAlias, uuid]
+    );
+  }
+
   /** Delete a note via direct database access. */
   async deleteNote(noteId: string): Promise<void> {
-    const result = await this.pool.query(
-      `DELETE FROM "Notes" WHERE shortid = $1 OR alias = $1`,
-      [noteId]
+    const uuid = await this.resolveNoteId(noteId);
+    await this.pool.query(
+      `DELETE FROM "Notes" WHERE id = $1`,
+      [uuid]
     );
-    if (result.rowCount === 0) {
-      throw new Error(`Note "${noteId}" not found`);
-    }
   }
 
   /** List all notes from the database. */
