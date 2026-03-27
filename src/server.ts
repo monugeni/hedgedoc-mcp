@@ -3,6 +3,7 @@ import { HedgeDocClient } from "./hedgedoc-client.js";
 import { registerNoteTools } from "./tools/note-tools.js";
 import { registerContentTools } from "./tools/content-tools.js";
 import { registerExportTools } from "./tools/export-tools.js";
+import { registerSmartEditTools } from "./tools/smart-edit-tools.js";
 
 export function createServer(client: HedgeDocClient, publicUrl: string, downloadBaseUrl?: string): McpServer {
   const server = new McpServer({
@@ -12,6 +13,7 @@ export function createServer(client: HedgeDocClient, publicUrl: string, download
 
   registerNoteTools(server, client, publicUrl, downloadBaseUrl);
   registerContentTools(server, client, publicUrl, downloadBaseUrl);
+  registerSmartEditTools(server, client);
   registerExportTools(server, client, downloadBaseUrl);
 
   return server;
