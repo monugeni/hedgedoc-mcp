@@ -16,6 +16,7 @@ WORKDIR /opt/mcp
 COPY package.json package-lock.json ./
 RUN npm install --omit=dev
 COPY --from=builder /opt/mcp/dist dist/
+COPY ui/ ui/
 
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh

@@ -10,8 +10,8 @@ export function createServer(client: HedgeDocClient, publicUrl: string, download
     version: "1.0.0",
   });
 
-  registerNoteTools(server, client, publicUrl);
-  registerContentTools(server, client, publicUrl);
+  registerNoteTools(server, client, publicUrl, downloadBaseUrl);
+  registerContentTools(server, client, publicUrl, downloadBaseUrl);
   registerExportTools(server, client, downloadBaseUrl);
 
   return server;

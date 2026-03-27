@@ -1,9 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { HedgeDocClient } from "../hedgedoc-client.js";
+import { buildDownloadMenu } from "./export-tools.js";
 
-export function registerNoteTools(server: McpServer, client: HedgeDocClient, publicUrl: string) {
+export function registerNoteTools(server: McpServer, client: HedgeDocClient, publicUrl: string, downloadBaseUrl?: string) {
   const noteUrl = (id: string) => `${publicUrl}/${id}`;
+  const noteLinks = (id: string) => {
+    const downloads = buildDownloadMenu(downloadBaseUrl, id);
+    return downloads ? `Note: ${noteUrl(id)}\nDownloads: ${downloads}` : `Note: ${noteUrl(id)}`;
+  };
 
   server.tool(
     "create_note",
@@ -16,7 +21,7 @@ export function registerNoteTools(server: McpServer, client: HedgeDocClient, pub
     async ({ content, alias }) => {
       const id = await client.createNote(content, alias);
       return {
-        content: [{ type: "text", text: `Note created: ${noteUrl(id)}` }],
+        content: [{ type: "text", text: `Note created.\n${noteLinks(id)}` }],
       };
     }
   );
@@ -47,7 +52,7 @@ export function registerNoteTools(server: McpServer, client: HedgeDocClient, pub
     async ({ noteId, newAlias }) => {
       await client.renameNote(noteId, newAlias);
       return {
-        content: [{ type: "text", text: `Note renamed to "${newAlias}": ${noteUrl(newAlias)}` }],
+        content: [{ type: "text", text: `Note renamed to "${newAlias}".\n${noteLinks(newAlias)}` }],
       };
     }
   );
@@ -64,7 +69,9 @@ export function registerNoteTools(server: McpServer, client: HedgeDocClient, pub
       }
       const lines = notes.map((n) => {
         const name = n.alias || n.id;
-        return `- [${n.title || "(untitled)"}](${noteUrl(name)}) — ${name} — ${new Date(n.lastchangeAt).toISOString()}`;
+        const downloads = buildDownloadMenu(downloadBaseUrl, name);
+        const suffix = downloads ? ` — ${downloads}` : "";
+        return `- [${n.title || "(untitled)"}](${noteUrl(name)}) — ${name} — ${new Date(n.lastchangeAt).toISOString()}${suffix}`;
       });
       return {
         content: [{ type: "text", text: lines.join("\n") }],

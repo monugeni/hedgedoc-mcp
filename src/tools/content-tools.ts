@@ -1,9 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { HedgeDocClient } from "../hedgedoc-client.js";
+import { buildDownloadMenu } from "./export-tools.js";
 
-export function registerContentTools(server: McpServer, client: HedgeDocClient, publicUrl: string) {
+export function registerContentTools(server: McpServer, client: HedgeDocClient, publicUrl: string, downloadBaseUrl?: string) {
   const noteUrl = (id: string) => `${publicUrl}/${id}`;
+  const noteLinks = (id: string) => {
+    const downloads = buildDownloadMenu(downloadBaseUrl, id);
+    return downloads ? `Note: ${noteUrl(id)}\nDownloads: ${downloads}` : `Note: ${noteUrl(id)}`;
+  };
 
   server.tool(
     "get_text",
@@ -15,7 +20,7 @@ export function registerContentTools(server: McpServer, client: HedgeDocClient, 
     async ({ noteId }) => {
       const content = await client.getContent(noteId);
       return {
-        content: [{ type: "text", text: `${noteUrl(noteId)}\n${content}` }],
+        content: [{ type: "text", text: `${noteLinks(noteId)}\n\n${content}` }],
       };
     }
   );
@@ -96,8 +101,14 @@ export function registerContentTools(server: McpServer, client: HedgeDocClient, 
     { readOnlyHint: true, destructiveHint: false },
     async ({ noteId }) => {
       const info = await client.getNoteInfo(noteId);
+      const downloads = buildDownloadMenu(downloadBaseUrl, noteId);
+      const lines = [
+        `Note: ${noteUrl(noteId)}`,
+        downloads ? `Downloads: ${downloads}` : null,
+        JSON.stringify(info, null, 2),
+      ].filter(Boolean);
       return {
-        content: [{ type: "text", text: JSON.stringify(info, null, 2) }],
+        content: [{ type: "text", text: lines.join("\n") }],
       };
     }
   );

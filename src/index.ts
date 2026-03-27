@@ -1,13 +1,14 @@
 import express from "express";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { unlink } from "node:fs/promises";
 import path from "node:path";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { HedgeDocClient } from "./hedgedoc-client.js";
 import { createServer } from "./server.js";
 import { loadConfig } from "./config.js";
-import { EXPORT_DIR } from "./tools/export-tools.js";
+import { EXPORT_DIR, exportMarkdownToFile, getDownloadFilename, isDownloadFormat } from "./tools/export-tools.js";
 
 const config = loadConfig();
 const client = new HedgeDocClient(config.databaseUrl, config.hedgedocUrl);
@@ -44,7 +45,7 @@ const transportArg = process.argv.includes("--stdio")
     : config.transport;
 
 const epUrl = new URL(config.hedgedocPublicUrl);
-const mcpPublicUrl = `${epUrl.protocol}//${epUrl.hostname}:${config.port}`;
+const mcpPublicUrl = config.mcpPublicUrl ?? `${epUrl.protocol}//${epUrl.hostname}:${config.port}`;
 
 if (transportArg === "stdio") {
   const server = createServer(client, config.hedgedocPublicUrl);
@@ -115,6 +116,36 @@ if (transportArg === "stdio") {
     }
     const session = sessions.get(sessionId)!;
     await session.transport.handleRequest(req, res);
+  });
+
+  app.get("/notes/:noteId/download/:format", async (req, res) => {
+    const { noteId } = req.params;
+    const format = req.params.format;
+
+    if (!isDownloadFormat(format)) {
+      res.status(400).json({ error: `Unsupported download format: ${format}` });
+      return;
+    }
+
+    try {
+      const markdown = await client.getContent(noteId);
+
+      if (format === "md") {
+        const filename = getDownloadFilename(noteId, "md");
+        res.type("text/markdown; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        res.send(markdown);
+        return;
+      }
+
+      const { outputPath, downloadName } = await exportMarkdownToFile(markdown, noteId, format);
+      res.download(outputPath, downloadName, () => {
+        void unlink(outputPath).catch(() => {});
+      });
+    } catch (err: any) {
+      const status = typeof err?.message === "string" && err.message.includes("not found") ? 404 : 500;
+      res.status(status).json({ error: err?.message || "Download failed" });
+    }
   });
 
   app.get("/downloads/:filename", (req, res) => {

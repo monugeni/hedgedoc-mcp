@@ -3,6 +3,8 @@ export interface Config {
   hedgedocUrl?: string;
   /** Public-facing HedgeDoc URL used in note links returned to the user. */
   hedgedocPublicUrl: string;
+  /** Public-facing MCP URL used for browser download links. */
+  mcpPublicUrl?: string;
   databaseUrl: string;
   port: number;
   host: string;
@@ -33,6 +35,7 @@ export function loadConfig(): Config {
   return {
     hedgedocUrl: hedgedocUrl?.replace(/\/+$/, ""),
     hedgedocPublicUrl: hedgedocPublicUrl.replace(/\/+$/, ""),
+    mcpPublicUrl: process.env.MCP_PUBLIC_URL?.replace(/\/+$/, "") || undefined,
     databaseUrl,
     port: parseInt(process.env.PORT || "8211", 10),
     host: process.env.HOST || "0.0.0.0",
