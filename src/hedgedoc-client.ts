@@ -160,13 +160,25 @@ export class HedgeDocClient {
       `SELECT n.shortid AS id, n.alias, n.title, n.content,
               n."viewcount", n."createdAt", n."updatedAt", n."lastchangeAt",
               n.permission,
-              u.profile->>'name' AS "lastchangeUser"
+              u.profile AS "lastchangeUserProfile"
        FROM "Notes" n
        LEFT JOIN "Users" u ON n."lastchangeuserId" = u.id
        WHERE n.id = $1`,
       [uuid]
     );
-    return result.rows[0];
+    const row = result.rows[0];
+    if (!row) return row;
+    const { lastchangeUserProfile, ...rest } = row;
+    // profile is a raw JSON string stored in a TEXT column (HedgeDoc parses it
+    // the same way in application code — there's no Postgres json operator for it)
+    let lastchangeUser: string | undefined;
+    try {
+      const parsed = lastchangeUserProfile ? JSON.parse(lastchangeUserProfile) : null;
+      lastchangeUser = parsed?.name || parsed?.displayName || parsed?.username;
+    } catch {
+      lastchangeUser = undefined;
+    }
+    return { ...rest, lastchangeUser };
   }
 
   /** Get revision list for a note. */
